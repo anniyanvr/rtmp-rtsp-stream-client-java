@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 pedroSG94.
+ * Copyright (C) 2024 pedroSG94.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,61 +16,45 @@
 
 package com.pedro.rtsp.rtp.sockets
 
-import android.util.Log
+import com.pedro.common.socket.base.TcpStreamSocket
+import com.pedro.common.socket.base.UdpStreamSocket
 import com.pedro.rtsp.rtsp.RtpFrame
-import com.pedro.rtsp.utils.RtpConstants
+import com.pedro.rtsp.utils.RtpTracks
 import java.io.IOException
-import java.io.OutputStream
-import java.net.DatagramPacket
-import java.net.InetAddress
-import java.net.MulticastSocket
-import java.net.UnknownHostException
 
 /**
  * Created by pedro on 7/11/18.
  */
-class RtpSocketUdp(videoSourcePort: Int, audioSourcePort: Int) : BaseRtpSocket() {
+class RtpSocketUdp(
+  private val rtpTracks: RtpTracks,
+  private val videoSocket: UdpStreamSocket?,
+  private val audioSocket: UdpStreamSocket?,
+) : BaseRtpSocket() {
 
-  private var multicastSocketVideo: MulticastSocket? = null
-  private var multicastSocketAudio: MulticastSocket? = null
-  private val datagramPacket = DatagramPacket(byteArrayOf(0), 1)
-
-  init {
-    multicastSocketVideo = MulticastSocket(videoSourcePort)
-    multicastSocketVideo?.timeToLive = 64
-    multicastSocketAudio = MulticastSocket(audioSourcePort)
-    multicastSocketAudio?.timeToLive = 64
+  @Throws(IOException::class)
+  override suspend fun setSocket(socket: TcpStreamSocket) {
+    videoSocket?.connect()
+    audioSocket?.connect()
   }
 
   @Throws(IOException::class)
-  override fun setDataStream(outputStream: OutputStream, host: String) {
-    datagramPacket.address = InetAddress.getByName(host)
+  override suspend fun sendFrame(rtpFrame: RtpFrame) {
+    sendFrameUDP(rtpFrame)
+  }
+
+  override suspend fun flush() { }
+
+  override suspend fun close() {
+    videoSocket?.close()
+    audioSocket?.close()
   }
 
   @Throws(IOException::class)
-  override suspend fun sendFrame(rtpFrame: RtpFrame, isEnableLogs: Boolean) {
-    sendFrameUDP(rtpFrame, isEnableLogs)
-  }
-
-  override fun close() {
-    multicastSocketVideo?.close()
-    multicastSocketAudio?.close()
-  }
-
-  @Throws(IOException::class)
-  private fun sendFrameUDP(rtpFrame: RtpFrame, isEnableLogs: Boolean) {
-    synchronized(RtpConstants.lock) {
-      datagramPacket.data = rtpFrame.buffer
-      datagramPacket.port = rtpFrame.rtpPort
-      datagramPacket.length = rtpFrame.length
-      if (rtpFrame.isVideoFrame()) {
-        multicastSocketVideo?.send(datagramPacket)
-      } else {
-        multicastSocketAudio?.send(datagramPacket)
-      }
-      if (isEnableLogs) {
-        Log.i(TAG, "wrote packet: ${(if (rtpFrame.isVideoFrame()) "Video" else "Audio")}, size: ${rtpFrame.length}, port: ${rtpFrame.rtpPort}")
-      }
+  private suspend fun sendFrameUDP(rtpFrame: RtpFrame) {
+    if (rtpFrame.isVideoFrame(rtpTracks.trackVideo)) {
+      videoSocket?.write(rtpFrame.buffer)
+    } else {
+      audioSocket?.write(rtpFrame.buffer)
     }
   }
 }

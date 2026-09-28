@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 pedroSG94.
+ * Copyright (C) 2024 pedroSG94.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,8 +19,11 @@ package com.pedro.rtmp.utils
 /**
  * Created by pedro on 26/04/21.
  */
-object RtmpConfig {
-  const val DEFAULT_CHUNK_SIZE = 128
+class RtmpConfig {
+  companion object {
+    const val DEFAULT_CHUNK_SIZE = 128
+  }
+  var readChunkSize = DEFAULT_CHUNK_SIZE
   var writeChunkSize = DEFAULT_CHUNK_SIZE
-  var acknowledgementWindowSize = 0
+  var acknowledgementWindowSize = Int.MAX_VALUE
 }

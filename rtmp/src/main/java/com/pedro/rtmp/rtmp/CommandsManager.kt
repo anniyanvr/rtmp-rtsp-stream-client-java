@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 pedroSG94.
+ * Copyright (C) 2024 pedroSG94.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,9 +17,16 @@
 package com.pedro.rtmp.rtmp
 
 import android.util.Log
-import com.pedro.rtmp.amf.v0.*
+import com.pedro.common.AudioCodec
+import com.pedro.common.TimeUtils
+import com.pedro.common.VideoCodec
 import com.pedro.rtmp.flv.FlvPacket
-import com.pedro.rtmp.rtmp.message.*
+import com.pedro.rtmp.rtmp.message.Acknowledgement
+import com.pedro.rtmp.rtmp.message.Audio
+import com.pedro.rtmp.rtmp.message.RtmpMessage
+import com.pedro.rtmp.rtmp.message.SetChunkSize
+import com.pedro.rtmp.rtmp.message.Video
+import com.pedro.rtmp.rtmp.message.WindowAcknowledgementSize
 import com.pedro.rtmp.rtmp.message.control.Event
 import com.pedro.rtmp.rtmp.message.control.Type
 import com.pedro.rtmp.rtmp.message.control.UserControl
@@ -28,7 +35,7 @@ import com.pedro.rtmp.utils.RtmpConfig
 import com.pedro.rtmp.utils.socket.RtmpSocket
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import java.io.*
+import java.io.IOException
 
 /**
  * Created by pedro on 21/04/21.
@@ -46,14 +53,18 @@ abstract class CommandsManager {
   var appName = ""
   var streamName = ""
   var tcUrl = ""
+  var flashVersion: String = "FMLE/3.0 (compatible; Lavf57.56.101)"
   var user: String? = null
   var password: String? = null
   var onAuth = false
-  var akamaiTs = false
   var startTs = 0L
-  var readChunkSize = RtmpConfig.DEFAULT_CHUNK_SIZE
+  val config = RtmpConfig()
   var audioDisabled = false
   var videoDisabled = false
+  var customAmfObject: Map<String, Any> = emptyMap()
+  var customMetadata: Map<String, Any> = emptyMap()
+  private var bytesRead = 0
+  private var lastAcknowledgementSequence = 0
 
   protected var width = 640
   protected var height = 480
@@ -61,6 +72,7 @@ abstract class CommandsManager {
   protected var sampleRate = 44100
   protected var isStereo = true
   var videoCodec = VideoCodec.H264
+  var audioCodec = AudioCodec.AAC
   //Avoid write a packet in middle of other.
   private val writeSync = Mutex(locked = false)
 
@@ -80,19 +92,23 @@ abstract class CommandsManager {
   }
 
   protected fun getCurrentTimestamp(): Int {
-    return (System.currentTimeMillis() / 1000 - timestamp).toInt()
+    return (TimeUtils.getCurrentTimeMillis() / 1000 - timestamp).toInt()
+  }
+
+  protected fun appendAuth(url: String, auth: String): String {
+    if (auth.isEmpty()) return url
+    return if (url.contains("?")) "$url&${auth.removePrefix("?")}" else "$url$auth"
   }
 
   @Throws(IOException::class)
   suspend fun sendChunkSize(socket: RtmpSocket) {
     writeSync.withLock {
-      val output = socket.getOutStream()
-      if (RtmpConfig.writeChunkSize != RtmpConfig.DEFAULT_CHUNK_SIZE) {
-        val chunkSize = SetChunkSize(RtmpConfig.writeChunkSize)
+      if (config.writeChunkSize != RtmpConfig.DEFAULT_CHUNK_SIZE) {
+        val chunkSize = SetChunkSize(config.writeChunkSize)
         chunkSize.header.timeStamp = getCurrentTimestamp()
         chunkSize.header.messageStreamId = streamId
-        chunkSize.writeHeader(output)
-        chunkSize.writeBody(output)
+        chunkSize.writeHeader(socket)
+        chunkSize.writeBody(socket, config.writeChunkSize)
         socket.flush()
         Log.i(TAG, "send $chunkSize")
       } else {
@@ -104,8 +120,7 @@ abstract class CommandsManager {
   @Throws(IOException::class)
   suspend fun sendConnect(auth: String, socket: RtmpSocket) {
     writeSync.withLock {
-      val output = socket.getOutStream()
-      sendConnect(auth, output)
+      sendConnectImp(auth, socket)
       socket.flush()
     }
   }
@@ -113,26 +128,24 @@ abstract class CommandsManager {
   @Throws(IOException::class)
   suspend fun createStream(socket: RtmpSocket) {
     writeSync.withLock {
-      val output = socket.getOutStream()
-      createStream(output)
+      createStreamImp(socket)
       socket.flush()
     }
   }
 
   @Throws(IOException::class)
-  fun readMessageResponse(socket: RtmpSocket): RtmpMessage {
-    val input = socket.getInputStream()
-    val message = RtmpMessage.getRtmpMessage(input, readChunkSize, sessionHistory)
+  suspend fun readMessageResponse(socket: RtmpSocket): RtmpMessage {
+    val message = RtmpMessage.getRtmpMessage(socket, config.readChunkSize, sessionHistory)
     sessionHistory.setReadHeader(message.header)
     Log.i(TAG, "read $message")
+    bytesRead += message.header.getPacketLength()
     return message
   }
 
   @Throws(IOException::class)
   suspend fun sendMetadata(socket: RtmpSocket) {
     writeSync.withLock {
-      val output = socket.getOutStream()
-      sendMetadata(output)
+      sendMetadataImp(socket)
       socket.flush()
     }
   }
@@ -140,8 +153,7 @@ abstract class CommandsManager {
   @Throws(IOException::class)
   suspend fun sendPublish(socket: RtmpSocket) {
     writeSync.withLock {
-      val output = socket.getOutStream()
-      sendPublish(output)
+      sendPublishImp(socket)
       socket.flush()
     }
   }
@@ -149,44 +161,60 @@ abstract class CommandsManager {
   @Throws(IOException::class)
   suspend fun sendWindowAcknowledgementSize(socket: RtmpSocket) {
     writeSync.withLock {
-      val output = socket.getOutStream()
-      val windowAcknowledgementSize = WindowAcknowledgementSize(RtmpConfig.acknowledgementWindowSize, getCurrentTimestamp())
-      windowAcknowledgementSize.writeHeader(output)
-      windowAcknowledgementSize.writeBody(output)
+      val windowAcknowledgementSize = WindowAcknowledgementSize(config.acknowledgementWindowSize, getCurrentTimestamp())
+      windowAcknowledgementSize.writeHeader(socket)
+      windowAcknowledgementSize.writeBody(socket, config.writeChunkSize)
       socket.flush()
     }
   }
 
   suspend fun sendPong(event: Event, socket: RtmpSocket) {
     writeSync.withLock {
-      val output = socket.getOutStream()
       val pong = UserControl(Type.PONG_REPLY, event)
-      pong.writeHeader(output)
-      pong.writeBody(output)
+      pong.writeHeader(socket)
+      pong.writeBody(socket, config.writeChunkSize)
       socket.flush()
       Log.i(TAG, "send pong")
+    }
+  }
+
+  suspend fun sendPing(socket: RtmpSocket) {
+    writeSync.withLock {
+      val ping = UserControl(Type.PING_REQUEST, Event(TimeUtils.getCurrentTimeSeconds()))
+      ping.writeHeader(socket)
+      ping.writeBody(socket, config.writeChunkSize)
+      socket.flush()
+      Log.i(TAG, "send ping")
     }
   }
 
   @Throws(IOException::class)
   suspend fun sendClose(socket: RtmpSocket) {
     writeSync.withLock {
-      val output = socket.getOutStream()
-      sendClose(output)
+      sendCloseImp(socket)
       socket.flush()
+    }
+  }
+
+  suspend fun checkAndSendAcknowledgement(socket: RtmpSocket) {
+    writeSync.withLock {
+      if (bytesRead - lastAcknowledgementSequence >= config.acknowledgementWindowSize) {
+        lastAcknowledgementSequence = bytesRead
+        val acknowledgement = Acknowledgement(bytesRead)
+        acknowledgement.writeHeader(socket)
+        acknowledgement.writeBody(socket, config.writeChunkSize)
+        socket.flush()
+        Log.i(TAG, "send $acknowledgement")
+      }
     }
   }
 
   @Throws(IOException::class)
   suspend fun sendVideoPacket(flvPacket: FlvPacket, socket: RtmpSocket): Int {
     writeSync.withLock {
-      val output = socket.getOutStream()
-      if (akamaiTs) {
-        flvPacket.timeStamp = ((System.nanoTime() / 1000 - startTs) / 1000)
-      }
       val video = Video(flvPacket, streamId)
-      video.writeHeader(output)
-      video.writeBody(output)
+      video.writeHeader(socket)
+      video.writeBody(socket, config.writeChunkSize)
       socket.flush(true)
       return video.header.getPacketLength() //get packet size with header included to calculate bps
     }
@@ -195,30 +223,28 @@ abstract class CommandsManager {
   @Throws(IOException::class)
   suspend fun sendAudioPacket(flvPacket: FlvPacket, socket: RtmpSocket): Int {
     writeSync.withLock {
-      val output = socket.getOutStream()
-      if (akamaiTs) {
-        flvPacket.timeStamp = ((System.nanoTime() / 1000 - startTs) / 1000)
-      }
       val audio = Audio(flvPacket, streamId)
-      audio.writeHeader(output)
-      audio.writeBody(output)
+      audio.writeHeader(socket)
+      audio.writeBody(socket, config.writeChunkSize)
       socket.flush(true)
       return audio.header.getPacketLength() //get packet size with header included to calculate bps
     }
   }
 
-  abstract fun sendConnect(auth: String, output: OutputStream)
-  abstract fun createStream(output: OutputStream)
-  abstract fun sendMetadata(output: OutputStream)
-  abstract fun sendPublish(output: OutputStream)
-  abstract fun sendClose(output: OutputStream)
+  abstract suspend fun sendConnectImp(auth: String, socket: RtmpSocket)
+  abstract suspend fun createStreamImp(socket: RtmpSocket)
+  abstract suspend fun sendMetadataImp(socket: RtmpSocket)
+  abstract suspend fun sendPublishImp(socket: RtmpSocket)
+  abstract suspend fun sendCloseImp(socket: RtmpSocket)
 
   fun reset() {
     startTs = 0
     timestamp = 0
     streamId = 0
     commandId = 0
-    readChunkSize = RtmpConfig.DEFAULT_CHUNK_SIZE
+    config.readChunkSize = RtmpConfig.DEFAULT_CHUNK_SIZE
     sessionHistory.reset()
+    lastAcknowledgementSequence = 0
+    bytesRead = 0
   }
 }

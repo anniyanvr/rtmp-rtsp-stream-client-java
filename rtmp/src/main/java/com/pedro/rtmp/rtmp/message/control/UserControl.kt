@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 pedroSG94.
+ * Copyright (C) 2024 pedroSG94.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,15 +16,15 @@
 
 package com.pedro.rtmp.rtmp.message.control
 
+import com.pedro.common.readUInt16
+import com.pedro.common.readUInt32
+import com.pedro.common.writeUInt16
+import com.pedro.common.writeUInt32
 import com.pedro.rtmp.rtmp.chunk.ChunkStreamId
 import com.pedro.rtmp.rtmp.chunk.ChunkType
 import com.pedro.rtmp.rtmp.message.BasicHeader
 import com.pedro.rtmp.rtmp.message.MessageType
 import com.pedro.rtmp.rtmp.message.RtmpMessage
-import com.pedro.rtmp.utils.readUInt16
-import com.pedro.rtmp.utils.readUInt32
-import com.pedro.rtmp.utils.writeUInt16
-import com.pedro.rtmp.utils.writeUInt32
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
@@ -40,12 +40,13 @@ class UserControl(var type: Type = Type.PING_REQUEST, var event: Event = Event(-
   override fun readBody(input: InputStream) {
     bodySize = 0
     val t = input.readUInt16()
-    type = Type.values().find { it.mark.toInt() == t } ?: throw IOException("unknown user control type: $t")
+    type = Type.entries.find { it.mark.toInt() == t } ?: throw IOException("unknown user control type: $t")
     bodySize += 2
     val data = input.readUInt32()
     bodySize += 4
     event = if (type == Type.SET_BUFFER_LENGTH) {
       val bufferLength = input.readUInt32()
+      bodySize += 4
       Event(data, bufferLength)
     } else {
       Event(data)

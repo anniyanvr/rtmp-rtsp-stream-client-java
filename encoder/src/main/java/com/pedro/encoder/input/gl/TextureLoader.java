@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 pedroSG94.
+ * Copyright (C) 2024 pedroSG94.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,7 +20,9 @@ import android.graphics.Bitmap;
 import android.opengl.GLES20;
 import android.opengl.GLUtils;
 import android.os.Build;
+
 import androidx.annotation.RequiresApi;
+
 import com.pedro.encoder.utils.gl.GlUtil;
 
 /**
@@ -34,12 +36,11 @@ public class TextureLoader {
     int[] textureId = new int[bitmaps.length];
     GlUtil.createTextures(bitmaps.length, textureId, 0);
     for (int i = 0; i < bitmaps.length; i++) {
-      if (bitmaps[i] != null) {
+      if (bitmaps[i] != null && !bitmaps[i].isRecycled()) {
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureId[i]);
         GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmaps[i], 0);
-        if (!bitmaps[i].isRecycled()) bitmaps[i].recycle();
-        bitmaps[i] = null;
       }
+      bitmaps[i] = null;
     }
     return textureId;
   }

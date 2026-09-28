@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 pedroSG94.
+ * Copyright (C) 2024 pedroSG94.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,10 @@ package com.pedro.encoder.utils.gl;
 
 import android.graphics.Bitmap;
 import android.util.Log;
+
+import com.pedro.common.TimeUtils;
 import com.pedro.encoder.utils.gl.gif.GifDecoder;
+
 import java.io.IOException;
 import java.io.InputStream;
 
@@ -41,12 +44,12 @@ public class GifStreamObject extends StreamObjectBase {
 
   @Override
   public int getWidth() {
-    return gifBitmaps != null ? gifBitmaps[0].getWidth() : 0;
+    return gifBitmaps != null && gifBitmaps.length > 0 && gifBitmaps[0] != null ? gifBitmaps[0].getWidth() : 0;
   }
 
   @Override
   public int getHeight() {
-    return gifBitmaps != null ? gifBitmaps[0].getHeight() : 0;
+    return gifBitmaps != null && gifBitmaps.length > 0 && gifBitmaps[0] != null ? gifBitmaps[0].getHeight() : 0;
   }
 
   public void load(InputStream inputStreamGif) throws IOException {
@@ -54,6 +57,7 @@ public class GifStreamObject extends StreamObjectBase {
     if (gifDecoder.read(inputStreamGif, inputStreamGif.available()) == 0) {
       Log.i(TAG, "read gif ok");
       numFrames = gifDecoder.getFrameCount();
+      if (numFrames <= 0) throw new IOException("Read gif error: no frames");
       gifDelayFrames = new int[numFrames];
       gifBitmaps = new Bitmap[numFrames];
       for (int i = 0; i < numFrames; i++) {
@@ -96,10 +100,11 @@ public class GifStreamObject extends StreamObjectBase {
 
   @Override
   public int updateFrame() {
+    if (gifDelayFrames == null || numFrames <= 0) return 0;
     if (startDelayFrame == 0) {
-      startDelayFrame = System.currentTimeMillis();
+      startDelayFrame = TimeUtils.getCurrentTimeMillis();
     }
-    if (System.currentTimeMillis() - startDelayFrame >= gifDelayFrames[currentGifFrame]) {
+    if (TimeUtils.getCurrentTimeMillis() - startDelayFrame >= gifDelayFrames[currentGifFrame]) {
       if (currentGifFrame >= numFrames - 1) {
         currentGifFrame = 0;
       } else {

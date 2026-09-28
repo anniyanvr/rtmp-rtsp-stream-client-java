@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 pedroSG94.
+ * Copyright (C) 2024 pedroSG94.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,5 +25,7 @@ enum class VideoFormat(val value: Int) {
   //fourCC extension
   HEVC(1752589105), // { "h", "v", "c", "1" }
   AV1(1635135537), // { "a", "v", "0", "1" }
-  VP9(1987063865) // { "v", "p", "0", "9" }
+  VP9(1987063865), // { "v", "p", "0", "9" }
+  VP8(1987063864), // { "v", "p", "0", "8" }
+  AVC_CC(1635148593), // { "a", "v", "c", "1" }
 }

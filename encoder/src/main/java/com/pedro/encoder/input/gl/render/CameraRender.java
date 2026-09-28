@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 pedroSG94.
+ * Copyright (C) 2024 pedroSG94.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,11 +22,14 @@ import android.opengl.GLES11Ext;
 import android.opengl.GLES20;
 import android.opengl.Matrix;
 import android.os.Build;
-import androidx.annotation.RequiresApi;
 import android.view.Surface;
+
+import androidx.annotation.RequiresApi;
+
 import com.pedro.encoder.R;
 import com.pedro.encoder.input.video.CameraHelper;
 import com.pedro.encoder.utils.gl.GlUtil;
+
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
@@ -37,9 +40,9 @@ import java.nio.ByteOrder;
 @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR2)
 public class CameraRender extends BaseRenderOffScreen {
 
-  private int[] textureID = new int[1];
-  private float[] rotationMatrix = new float[16];
-  private float[] scaleMatrix = new float[16];
+  private final int[] textureID = new int[1];
+  private final float[] rotationMatrix = new float[16];
+  private final float[] scaleMatrix = new float[16];
 
   private int program = -1;
   private int uMVPMatrixHandle = -1;
@@ -49,6 +52,8 @@ public class CameraRender extends BaseRenderOffScreen {
 
   private SurfaceTexture surfaceTexture;
   private Surface surface;
+  private int width;
+  private int height;
 
   public CameraRender() {
     Matrix.setIdentityM(MVPMatrix, 0);
@@ -76,7 +81,6 @@ public class CameraRender extends BaseRenderOffScreen {
     aTextureCameraHandle = GLES20.glGetAttribLocation(program, "aTextureCoord");
     uMVPMatrixHandle = GLES20.glGetUniformLocation(program, "uMVPMatrix");
     uSTMatrixHandle = GLES20.glGetUniformLocation(program, "uSTMatrix");
-    uSTMatrixHandle = GLES20.glGetUniformLocation(program, "uSTMatrix");
 
     //camera texture
     GlUtil.createExternalTextures(textureID.length, textureID, 0);
@@ -100,12 +104,12 @@ public class CameraRender extends BaseRenderOffScreen {
 
     squareVertex.position(SQUARE_VERTEX_DATA_POS_OFFSET);
     GLES20.glVertexAttribPointer(aPositionHandle, 3, GLES20.GL_FLOAT, false,
-        SQUARE_VERTEX_DATA_STRIDE_BYTES, squareVertex);
+            SQUARE_VERTEX_DATA_STRIDE_BYTES, squareVertex);
     GLES20.glEnableVertexAttribArray(aPositionHandle);
 
     squareVertex.position(SQUARE_VERTEX_DATA_UV_OFFSET);
     GLES20.glVertexAttribPointer(aTextureCameraHandle, 2, GLES20.GL_FLOAT, false,
-        SQUARE_VERTEX_DATA_STRIDE_BYTES, squareVertex);
+            SQUARE_VERTEX_DATA_STRIDE_BYTES, squareVertex);
     GLES20.glEnableVertexAttribArray(aTextureCameraHandle);
 
     GLES20.glUniformMatrix4fv(uMVPMatrixHandle, 1, false, MVPMatrix, 0);
@@ -116,6 +120,7 @@ public class CameraRender extends BaseRenderOffScreen {
     //draw
     GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
 
+    GlUtil.disableResources(aTextureCameraHandle, aPositionHandle);
     GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
     GlUtil.checkGlError("drawCamera end");
   }
@@ -123,8 +128,8 @@ public class CameraRender extends BaseRenderOffScreen {
   @Override
   public void release() {
     GLES20.glDeleteProgram(program);
-    surfaceTexture.release();
-    surface.release();
+    if (surfaceTexture != null) surfaceTexture.release();
+    if (surface != null) surface.release();
   }
 
   public void updateTexImage() {

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 pedroSG94.
+ * Copyright (C) 2024 pedroSG94.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,6 +23,7 @@ import android.graphics.RectF;
 import android.hardware.Camera;
 import android.hardware.camera2.params.Face;
 import android.os.Build;
+
 import androidx.annotation.RequiresApi;
 
 import com.pedro.encoder.input.video.CameraHelper;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 pedroSG94.
+ * Copyright (C) 2024 pedroSG94.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,13 +19,19 @@ package com.pedro.encoder.audio;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaFormat;
+import android.os.Build;
 import android.util.Log;
+
 import androidx.annotation.NonNull;
+
+import com.pedro.common.AudioCodec;
 import com.pedro.encoder.BaseEncoder;
 import com.pedro.encoder.Frame;
 import com.pedro.encoder.GetFrame;
+import com.pedro.encoder.TimestampMode;
 import com.pedro.encoder.input.audio.GetMicrophoneData;
 import com.pedro.encoder.utils.CodecUtil;
+
 import java.nio.ByteBuffer;
 import java.util.List;
 
@@ -37,32 +43,43 @@ import java.util.List;
 
 public class AudioEncoder extends BaseEncoder implements GetMicrophoneData {
 
-  private final GetAacData getAacData;
+  private final GetAudioData getAudioData;
   private int bitRate = 64 * 1024;  //in kbps
   private int sampleRate = 32000; //in hz
-  private int maxInputSize = 0;
+  public static final int inputSize = 8192;
   private boolean isStereo = true;
   private GetFrame getFrame;
-  private long bytesRead = 0;
-  private boolean tsModeBuffer = false;
+  private long tsBuffer = 0;
 
-  public AudioEncoder(GetAacData getAacData) {
-    this.getAacData = getAacData;
+  public AudioEncoder(GetAudioData getAudioData) {
+    this.getAudioData = getAudioData;
+    typeError = CodecUtil.CodecTypeError.AUDIO_CODEC;
+    type = AudioCodec.AAC;
     TAG = "AudioEncoder";
   }
 
   /**
    * Prepare encoder with custom parameters
    */
-  public boolean prepareAudioEncoder(int bitRate, int sampleRate, boolean isStereo,
-      int maxInputSize) {
+  public boolean prepareAudioEncoder(int bitRate, int sampleRate, boolean isStereo) {
+    if (prepared) stop();
+
     this.bitRate = bitRate;
     this.sampleRate = sampleRate;
-    this.maxInputSize = maxInputSize;
     this.isStereo = isStereo;
     isBufferMode = true;
+
     try {
-      MediaCodecInfo encoder = chooseEncoder(CodecUtil.AAC_MIME);
+      if (type == AudioCodec.G711) {
+        g711Codec.configure(sampleRate, isStereo ? 2 : 1);
+        setCallback();
+        running = false;
+        Log.i(TAG, "prepared");
+        prepared = true;
+        return true;
+      }
+
+      MediaCodecInfo encoder = chooseEncoder(type.getMime());
       if (encoder != null) {
         Log.i(TAG, "Encoder selected " + encoder.getName());
         codec = MediaCodec.createByCodecName(encoder.getName());
@@ -72,16 +89,21 @@ public class AudioEncoder extends BaseEncoder implements GetMicrophoneData {
       }
 
       int channelCount = (isStereo) ? 2 : 1;
-      MediaFormat audioFormat =
-          MediaFormat.createAudioFormat(CodecUtil.AAC_MIME, sampleRate, channelCount);
+      MediaFormat audioFormat = MediaFormat.createAudioFormat(type.getMime(), sampleRate, channelCount);
       audioFormat.setInteger(MediaFormat.KEY_BIT_RATE, bitRate);
-      audioFormat.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, maxInputSize);
-      audioFormat.setInteger(MediaFormat.KEY_AAC_PROFILE,
-          MediaCodecInfo.CodecProfileLevel.AACObjectLC);
+      audioFormat.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, inputSize);
+      if (type == AudioCodec.AAC || type == AudioCodec.HE_AAC) {
+        int profile = type == AudioCodec.HE_AAC ? MediaCodecInfo.CodecProfileLevel.AACObjectHE : MediaCodecInfo.CodecProfileLevel.AACObjectLC;
+        audioFormat.setInteger(MediaFormat.KEY_AAC_PROFILE, profile);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+          audioFormat.setInteger(MediaFormat.KEY_PROFILE, profile);
+        }
+      }
       setCallback();
       codec.configure(audioFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
       running = false;
       Log.i(TAG, "prepared");
+      prepared = true;
       return true;
     } catch (Exception e) {
       Log.e(TAG, "Create AudioEncoder failed.", e);
@@ -98,26 +120,27 @@ public class AudioEncoder extends BaseEncoder implements GetMicrophoneData {
    * Prepare encoder with default parameters
    */
   public boolean prepareAudioEncoder() {
-    return prepareAudioEncoder(bitRate, sampleRate, isStereo, maxInputSize);
+    return prepareAudioEncoder(bitRate, sampleRate, isStereo);
   }
 
   @Override
   public void start(boolean resetTs) {
-    shouldReset = resetTs;
+    if (resetTs) tsBuffer = 0;
     Log.i(TAG, "started");
   }
 
   @Override
   protected void stopImp() {
-    bytesRead = 0;
     Log.i(TAG, "stopped");
   }
 
   @Override
-  public void reset() {
+  public boolean reset() {
     stop(false);
-    prepareAudioEncoder(bitRate, sampleRate, isStereo, maxInputSize);
+    boolean result = prepareAudioEncoder(bitRate, sampleRate, isStereo);
+    if (!result) return false;
     restart();
+    return true;
   }
 
   @Override
@@ -128,26 +151,30 @@ public class AudioEncoder extends BaseEncoder implements GetMicrophoneData {
   @Override
   protected long calculatePts(Frame frame, long presentTimeUs) {
     long pts;
-    if (tsModeBuffer) {
-      int channels = isStereo ? 2 : 1;
-      pts = 1000000 * bytesRead / 2 / channels / sampleRate;
-      bytesRead += frame.getSize();
+    long clockPts = Math.max(0, frame.getTimeStamp() - presentTimeUs);
+    if (timestampMode == TimestampMode.CLOCK) {
+      pts = clockPts;
     } else {
-      pts = System.nanoTime() / 1000 - presentTimeUs;
+      if (tsBuffer == 0) tsBuffer = clockPts;
+      int channels = isStereo ? 2 : 1;
+      tsBuffer += (long)((double)frame.getSize() / (sampleRate * channels * 2L) * 1_000_000L);
+      if (clockPts - tsBuffer > 500_000) tsBuffer = clockPts;
+      pts = tsBuffer;
     }
     return pts;
   }
 
   @Override
-  protected void checkBuffer(@NonNull ByteBuffer byteBuffer,
+  protected boolean checkBuffer(@NonNull ByteBuffer byteBuffer,
       @NonNull MediaCodec.BufferInfo bufferInfo) {
-    fixTimeStamp(bufferInfo);
+    if ((bufferInfo.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) return false;
+    return checkValidTimeStamp(bufferInfo);
   }
 
   @Override
   protected void sendBuffer(@NonNull ByteBuffer byteBuffer,
       @NonNull MediaCodec.BufferInfo bufferInfo) {
-    getAacData.getAacData(byteBuffer, bufferInfo);
+    getAudioData.getAudioData(byteBuffer, bufferInfo);
   }
 
   /**
@@ -156,7 +183,7 @@ public class AudioEncoder extends BaseEncoder implements GetMicrophoneData {
    * Used too with microphone.
    */
   @Override
-  public void inputPCMData(Frame frame) {
+  public void inputPCMData(@NonNull Frame frame) {
     if (running && !queue.offer(frame)) {
       Log.i(TAG, "frame discarded");
     }
@@ -165,16 +192,21 @@ public class AudioEncoder extends BaseEncoder implements GetMicrophoneData {
   @Override
   protected MediaCodecInfo chooseEncoder(String mime) {
     List<MediaCodecInfo> mediaCodecInfoList;
-    if (force == CodecUtil.Force.HARDWARE) {
-      mediaCodecInfoList = CodecUtil.getAllHardwareEncoders(CodecUtil.AAC_MIME);
-    } else if (force == CodecUtil.Force.SOFTWARE) {
-      mediaCodecInfoList = CodecUtil.getAllSoftwareEncoders(CodecUtil.AAC_MIME);
+    if (codecType == CodecUtil.CodecType.HARDWARE) {
+      mediaCodecInfoList = CodecUtil.getAllHardwareEncoders(mime);
+    } else if (codecType == CodecUtil.CodecType.SOFTWARE) {
+      mediaCodecInfoList = CodecUtil.getAllSoftwareEncoders(mime);
+    } else if (codecType == CodecUtil.CodecType.CBR_PRIORITY) {
+      mediaCodecInfoList = CodecUtil.getAllEncodersCbrPriority(mime);
     } else {
       //Priority: hardware > software
-      mediaCodecInfoList = CodecUtil.getAllEncoders(CodecUtil.AAC_MIME, true);
+      mediaCodecInfoList = CodecUtil.getAllEncoders(mime, true);
     }
 
     Log.i(TAG, mediaCodecInfoList.size() + " encoders found");
+    if (type == AudioCodec.HE_AAC) {
+      mediaCodecInfoList = CodecUtil.getCodecsWithProfile(mediaCodecInfoList, mime, MediaCodecInfo.CodecProfileLevel.AACObjectHE);
+    }
     if (mediaCodecInfoList.isEmpty()) return null;
     else return mediaCodecInfoList.get(0);
   }
@@ -183,18 +215,8 @@ public class AudioEncoder extends BaseEncoder implements GetMicrophoneData {
     this.sampleRate = sampleRate;
   }
 
-  public boolean isTsModeBuffer() {
-    return tsModeBuffer;
-  }
-
-  public void setTsModeBuffer(boolean tsModeBuffer) {
-    if (!isRunning()) {
-      this.tsModeBuffer = tsModeBuffer;
-    }
-  }
-
   @Override
   public void formatChanged(@NonNull MediaCodec mediaCodec, @NonNull MediaFormat mediaFormat) {
-    getAacData.onAudioFormat(mediaFormat);
+    getAudioData.onAudioFormat(mediaFormat);
   }
 }

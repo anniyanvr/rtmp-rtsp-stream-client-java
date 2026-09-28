@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 pedroSG94.
+ * Copyright (C) 2024 pedroSG94.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,10 +16,10 @@
 
 package com.pedro.rtmp.rtmp.message
 
+import com.pedro.common.readUInt32
+import com.pedro.common.writeUInt32
 import com.pedro.rtmp.rtmp.chunk.ChunkStreamId
 import com.pedro.rtmp.rtmp.chunk.ChunkType
-import com.pedro.rtmp.utils.readUInt32
-import com.pedro.rtmp.utils.writeUInt32
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 

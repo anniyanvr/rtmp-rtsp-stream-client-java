@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 pedroSG94.
+ * Copyright (C) 2024 pedroSG94.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,5 +20,5 @@ package com.pedro.rtsp.rtsp.commands
  * Created by pedro on 7/04/21.
  */
 enum class Method {
-  OPTIONS, ANNOUNCE, RECORD, SETUP, DESCRIBE, TEARDOWN, PLAY, PAUSE, SET_PARAMETERS, GET_PARAMETERS, REDIRECT, UNKNOWN
+  OPTIONS, ANNOUNCE, RECORD, SETUP, DESCRIBE, TEARDOWN, PLAY, PAUSE, SET_PARAMETER, GET_PARAMETER, REDIRECT, UNKNOWN
 }

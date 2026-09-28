@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 pedroSG94.
+ * Copyright (C) 2024 pedroSG94.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -49,6 +49,8 @@ public class Sprite {
 
   private PointF scale;
   private PointF position;
+  private int rotation;
+  private volatile boolean dirty = true;
 
   public Sprite() {
     reset();
@@ -61,6 +63,7 @@ public class Sprite {
   public void translate(float deltaX, float deltaY) {
     position.x = deltaX;
     position.y = deltaY;
+    dirty = true;
   }
 
   /**
@@ -70,7 +73,7 @@ public class Sprite {
     switch (translation) {
       case CENTER:
         this.position.x = 50f - scale.x / 2f;
-        this.position.y = 50f - scale.x / 2f;
+        this.position.y = 50f - scale.y / 2f;
         break;
       case BOTTOM:
         this.position.x = 50f - scale.x / 2f;
@@ -107,6 +110,7 @@ public class Sprite {
       default:
         break;
     }
+    dirty = true;
   }
 
   /**
@@ -119,25 +123,47 @@ public class Sprite {
     position.y /= deltaY / scale.y;
     //set new scale.
     scale = new PointF(deltaX, deltaY);
+    dirty = true;
+  }
+
+  public void setRotation(int angle) {
+    rotation = angle;
+    dirty = true;
+  }
+
+  /**
+   * @return true if the sprite changed since the last call. Used to know if the vertices related
+   * with this sprite must be calculated again.
+   */
+  public boolean consumeDirty() {
+    boolean dirty = this.dirty;
+    this.dirty = false;
+    return dirty;
   }
 
   /**
    * @return Scale in percent
    */
   public PointF getScale() {
-    return scale;
+    return new PointF(scale.x, scale.y);
   }
 
   /**
    * @return Position in percent
    */
   public PointF getTranslation() {
-    return position;
+    return new PointF(position.x, position.y);
+  }
+
+  public int getRotation() {
+    return rotation;
   }
 
   public void reset() {
     scale = new PointF(100f, 100f);
     position = new PointF(0f, 0f);
+    rotation = 0;
+    dirty = true;
   }
 
   /**
@@ -182,10 +208,29 @@ public class Sprite {
     topLeft.x += positionX;
     topLeft.y += positionY;
 
+    PointF center = new PointF(0.5f, 0.5f);
+    bottomLeft = rotatePoint(bottomLeft, center, rotation);
+    bottomRight = rotatePoint(bottomRight, center, rotation);
+    topLeft = rotatePoint(topLeft, center, rotation);
+    topRight = rotatePoint(topRight, center, rotation);
+
     //Recreate vertex like initial vertex.
     return new float[] {
         bottomRight.x, bottomRight.y, bottomLeft.x, bottomLeft.y, topRight.x, topRight.y, topLeft.x,
         topLeft.y,
     };
+  }
+
+  private PointF rotatePoint(PointF point, PointF center, int rotation) {
+    float angle = rotation % 360;
+    if (angle > 180) angle -= 360;
+    double A = angle * Math.PI / 180;
+    float cosA = (float) Math.cos(A);
+    float sinA = (float) Math.sin(A);
+    float x = point.x - center.x;
+    float y = point.y - center.y;
+    float rotationX = x * cosA - y * sinA;
+    float rotationY = y * cosA + x * sinA;
+    return new PointF(center.x + rotationX, center.y + rotationY);
   }
 }

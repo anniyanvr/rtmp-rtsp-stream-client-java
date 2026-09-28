@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 pedroSG94.
+ * Copyright (C) 2024 pedroSG94.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package com.pedro.encoder.utils.yuv;
 
 import android.graphics.Bitmap;
 import android.media.MediaCodecInfo;
+
 import com.pedro.encoder.Frame;
 import com.pedro.encoder.video.FormatVideoEncoder;
 

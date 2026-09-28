@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 pedroSG94.
+ * Copyright (C) 2024 pedroSG94.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,27 +17,21 @@
 package com.pedro.rtmp.utils
 
 import com.pedro.rtmp.rtmp.message.RtmpHeader
-import kotlin.collections.ArrayList
-import kotlin.collections.HashMap
 
 /**
  * Created by pedro on 22/04/21.
  */
-class CommandSessionHistory(private val commandHistory: HashMap<Int, String> = HashMap(),
-    private val headerHistory: MutableList<RtmpHeader> = ArrayList()) {
+class CommandSessionHistory {
+
+  private val commandHistory = hashMapOf<Int, String>()
+  private val headerHistory = hashMapOf<Int, RtmpHeader>()
 
   fun setReadHeader(header: RtmpHeader) {
-    headerHistory.add(header)
+    headerHistory[header.basicHeader.chunkStreamId] = header
   }
 
   fun getLastReadHeader(chunkStreamId: Int): RtmpHeader? {
-    val reverseList = headerHistory
-    reverseList.reversed().forEach {
-      if (it.basicHeader.chunkStreamId == chunkStreamId) {
-        return it
-      }
-    }
-    return null
+    return headerHistory[chunkStreamId]
   }
 
   fun getName(id: Int): String? {

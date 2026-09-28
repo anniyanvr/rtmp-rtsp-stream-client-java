@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 pedroSG94.
+ * Copyright (C) 2024 pedroSG94.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,26 +29,22 @@ class CommandParser {
     private const val TAG = "CommandParser"
   }
 
-  fun loadServerPorts(command: Command, protocol: Protocol, audioClientPorts: IntArray,
-    videoClientPorts: IntArray, audioServerPorts: IntArray, videoServerPorts: IntArray): Boolean {
-    var isAudio = true
+  fun loadServerPorts(
+    command: Command, protocol: Protocol, isAudio: Boolean,
+    audioClientPorts: Array<Int?>,
+    videoClientPorts: Array<Int?>,
+    audioServerPorts: Array<Int?>, videoServerPorts: Array<Int?>
+  ): Boolean {
     if (command.method == Method.SETUP && protocol == Protocol.UDP) {
-      val clientPattern = Pattern.compile("client_port=([0-9]+)-([0-9]+)")
-      val clientMatcher = clientPattern.matcher(command.text)
-      if (clientMatcher.find()) {
-        val port = (clientMatcher.group(1) ?: "-1").toInt()
-        isAudio = port == audioClientPorts[0]
-      }
-
       val rtspPattern = Pattern.compile("server_port=([0-9]+)-([0-9]+)")
       val matcher = rtspPattern.matcher(command.text)
       if (matcher.find()) {
         if (isAudio) {
-          audioServerPorts[0] = matcher.group(1)?.toInt() ?: audioClientPorts[0]
-          audioServerPorts[1] = matcher.group(2)?.toInt() ?: audioClientPorts[1]
+          audioServerPorts[0] = matcher.group(1)?.toIntOrNull() ?: audioClientPorts[0]
+          audioServerPorts[1] = matcher.group(2)?.toIntOrNull() ?: audioClientPorts[1]
         } else {
-          videoServerPorts[0] = matcher.group(1)?.toInt() ?: videoClientPorts[0]
-          videoServerPorts[1] = matcher.group(2)?.toInt() ?: videoClientPorts[1]
+          videoServerPorts[0] = matcher.group(1)?.toIntOrNull() ?: videoClientPorts[0]
+          videoServerPorts[1] = matcher.group(2)?.toIntOrNull() ?: videoClientPorts[1]
         }
         return true
       }
@@ -88,7 +84,7 @@ class CommandParser {
   private fun getCSeq(request: String): Int {
     val cSeqMatcher = Pattern.compile("CSeq\\s*:\\s*(\\d+)", Pattern.CASE_INSENSITIVE).matcher(request)
     return if (cSeqMatcher.find()) {
-      cSeqMatcher.group(1)?.toInt() ?: -1
+      cSeqMatcher.group(1)?.toIntOrNull() ?: -1
     } else {
       Log.e(TAG, "cSeq not found")
       -1
@@ -109,8 +105,8 @@ class CommandParser {
           Method.TEARDOWN.name -> Method.TEARDOWN
           Method.PLAY.name -> Method.PLAY
           Method.PAUSE.name -> Method.PAUSE
-          Method.SET_PARAMETERS.name -> Method.SET_PARAMETERS
-          Method.GET_PARAMETERS.name -> Method.GET_PARAMETERS
+          Method.SET_PARAMETER.name -> Method.SET_PARAMETER
+          Method.GET_PARAMETER.name -> Method.GET_PARAMETER
           Method.REDIRECT.name -> Method.REDIRECT
           else -> Method.UNKNOWN
         }
@@ -125,7 +121,7 @@ class CommandParser {
   private fun getResponseStatus(response: String): Int {
     val matcher = Pattern.compile("RTSP/\\d.\\d (\\d+) (\\w+)", Pattern.CASE_INSENSITIVE).matcher(response)
     return if (matcher.find()) {
-      (matcher.group(1) ?: "-1").toInt()
+      matcher.group(1)?.toIntOrNull() ?: -1
     } else {
       Log.e(TAG, "status code not found")
       -1

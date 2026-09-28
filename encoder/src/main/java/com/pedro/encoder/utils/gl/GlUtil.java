@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 pedroSG94.
+ * Copyright (C) 2024 pedroSG94.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,8 +24,9 @@ import android.opengl.EGL14;
 import android.opengl.GLES11Ext;
 import android.opengl.GLES20;
 import android.os.Build;
-import android.util.Log;
+
 import androidx.annotation.RequiresApi;
+
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -38,8 +39,6 @@ import java.nio.ByteBuffer;
 @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR2)
 public class GlUtil {
 
-  private static final String TAG = "GlUtil";
-
   public static int loadShader(int shaderType, String source) {
     int shader = GLES20.glCreateShader(shaderType);
     checkGlError("glCreateShader type=" + shaderType);
@@ -47,30 +46,21 @@ public class GlUtil {
     GLES20.glCompileShader(shader);
     int[] compiled = new int[1];
     GLES20.glGetShaderiv(shader, GLES20.GL_COMPILE_STATUS, compiled, 0);
-    if (compiled[0] == 0) {
-      Log.e(TAG, "Could not compile shader " + shaderType + ":");
-      Log.e(TAG, " " + GLES20.glGetShaderInfoLog(shader));
+    if (compiled[0] == GLES20.GL_FALSE) {
+      String message = "Could not compile shader " + shaderType + ": " + GLES20.glGetShaderInfoLog(shader);
       GLES20.glDeleteShader(shader);
-      shader = 0;
+      throw new RuntimeException(message);
     }
     return shader;
   }
 
   public static int createProgram(String vertexSource, String fragmentSource) {
     int vertexShader = loadShader(GLES20.GL_VERTEX_SHADER, vertexSource);
-    if (vertexShader == 0) {
-      return 0;
-    }
     int pixelShader = loadShader(GLES20.GL_FRAGMENT_SHADER, fragmentSource);
-    if (pixelShader == 0) {
-      return 0;
-    }
 
     int program = GLES20.glCreateProgram();
     checkGlError("glCreateProgram");
-    if (program == 0) {
-      Log.e(TAG, "Could not create program");
-    }
+    if (program == 0) throw new RuntimeException("Could not create program");
     GLES20.glAttachShader(program, vertexShader);
     checkGlError("glAttachShader");
     GLES20.glAttachShader(program, pixelShader);
@@ -79,42 +69,32 @@ public class GlUtil {
     int[] linkStatus = new int[1];
     GLES20.glGetProgramiv(program, GLES20.GL_LINK_STATUS, linkStatus, 0);
     if (linkStatus[0] != GLES20.GL_TRUE) {
-      Log.e(TAG, "Could not link program: ");
-      Log.e(TAG, GLES20.glGetProgramInfoLog(program));
+      String message = "Could not link program: " + GLES20.glGetProgramInfoLog(program);
       GLES20.glDeleteProgram(program);
-      program = 0;
+      throw new RuntimeException(message);
     }
     return program;
   }
 
-  public static void createTextures(int quantity, int[] texturesId, int offset) {
+  public static void createTextures(int quantity, int[] texturesId, int offset, int filter, boolean isExternal) {
     GLES20.glGenTextures(quantity, texturesId, offset);
-    for (int i = offset; i < quantity; i++) {
+    final int type = isExternal ? GLES11Ext.GL_TEXTURE_EXTERNAL_OES : GLES20.GL_TEXTURE_2D;
+    for (int i = offset; i < offset + quantity; i++) {
       GLES20.glActiveTexture(GLES20.GL_TEXTURE0 + i);
-      GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texturesId[i]);
-      GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
-      GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
-      GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S,
-          GLES20.GL_CLAMP_TO_EDGE);
-      GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T,
-          GLES20.GL_CLAMP_TO_EDGE);
+      GLES20.glBindTexture(type, texturesId[i]);
+      GLES20.glTexParameterf(type, GLES20.GL_TEXTURE_MIN_FILTER, filter);
+      GLES20.glTexParameterf(type, GLES20.GL_TEXTURE_MAG_FILTER, filter);
+      GLES20.glTexParameteri(type, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
+      GLES20.glTexParameteri(type, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
     }
   }
 
+  public static void createTextures(int quantity, int[] texturesId, int offset) {
+    createTextures(quantity, texturesId, offset, GLES20.GL_LINEAR, false);
+  }
+
   public static void createExternalTextures(int quantity, int[] texturesId, int offset) {
-    GLES20.glGenTextures(quantity, texturesId, offset);
-    for (int i = offset; i < quantity; i++) {
-      GLES20.glActiveTexture(GLES20.GL_TEXTURE0 + i);
-      GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, texturesId[i]);
-      GLES20.glTexParameterf(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MIN_FILTER,
-          GLES20.GL_LINEAR);
-      GLES20.glTexParameterf(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MAG_FILTER,
-          GLES20.GL_LINEAR);
-      GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_S,
-          GLES20.GL_CLAMP_TO_EDGE);
-      GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_T,
-          GLES20.GL_CLAMP_TO_EDGE);
-    }
+    createTextures(quantity, texturesId, offset, GLES20.GL_LINEAR, true);
   }
 
   public static String getStringFromRaw(Context context, int id) {
@@ -131,12 +111,13 @@ public class GlUtil {
       str = baos.toString();
       is.close();
     } catch (IOException e) {
-      str = "";
+      throw new RuntimeException("Read shader from disk failed: " + e.getMessage());
     }
     return str;
   }
 
   public static void checkGlError(String op) {
+    if (!debugMode) return;
     int error = GLES20.glGetError();
     if (error != GLES20.GL_NO_ERROR) {
       throw new RuntimeException(op + ". GL error: " + error);
@@ -144,6 +125,7 @@ public class GlUtil {
   }
 
   public static void checkEglError(String msg) {
+    if (!debugMode) return;
     int error = EGL14.eglGetError();
     if (error != EGL14.EGL_SUCCESS) {
       throw new RuntimeException(msg + ". EGL error: " + error);
@@ -171,4 +153,22 @@ public class GlUtil {
     matrix.postScale(1f, -1f, cx, cy);
     return Bitmap.createBitmap(bitmap, 0, 0, width, height, matrix, true);
   }
+
+  private static int maxVertexAttribs = -1;
+
+  public static void disableResources(int... vertex) {
+    if (maxVertexAttribs < 0) {
+      int[] value = new int[1];
+      GLES20.glGetIntegerv(GLES20.GL_MAX_VERTEX_ATTRIBS, value, 0);
+      maxVertexAttribs = value[0];
+    }
+    for (int v: vertex) {
+      if (v >= 0 && v < maxVertexAttribs) GLES20.glDisableVertexAttribArray(v);
+    }
+    GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, 0);
+    GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0);
+    GLES20.glUseProgram(0);
+  }
+
+  public static boolean debugMode = false;
 }

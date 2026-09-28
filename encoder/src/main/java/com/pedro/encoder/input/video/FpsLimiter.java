@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 pedroSG94.
+ * Copyright (C) 2024 pedroSG94.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,37 +16,37 @@
 
 package com.pedro.encoder.input.video;
 
+import com.pedro.common.TimeUtils;
+
 /**
  * Created by pedro on 11/10/18.
  */
 
 public class FpsLimiter {
 
-  private long startTS = System.currentTimeMillis();
-  private long ratioF = 1000 / 30;
-  private long ratio = 1000 / 30;
-  private long frameStartTS = 0;
+  private long interval = 1_000_000_000L / 30;
+  private long time = 0;
+  private boolean configured = false;
 
   public void setFPS(int fps) {
-    startTS = System.currentTimeMillis();
-    ratioF = 1000 / fps;
-    ratio = 1000 / fps;
+    if (fps <= 0) {
+      configured = false;
+      return;
+    } else {
+      configured = true;
+    }
+    interval = 1_000_000_000L / fps;
   }
 
-  public boolean limitFPS() {
-    long lastFrameTimestamp = System.currentTimeMillis() - startTS;
-    if (ratio < lastFrameTimestamp) {
-      ratio += ratioF;
+  public boolean limitFPS(long timestamp) {
+    if (!configured) return false;
+    if (time == 0) {
+      time = timestamp;
       return false;
     }
-    return true;
-  }
-
-  public void setFrameStartTs() {
-    frameStartTS = System.currentTimeMillis();
-  }
-
-  public long getSleepTime() {
-    return Math.max(0, ratioF - (System.currentTimeMillis() - frameStartTS));
+    if (timestamp - time < interval - (interval / 4)) return true;
+    time += interval;
+    if (timestamp - time > interval) time = timestamp;
+    return false;
   }
 }

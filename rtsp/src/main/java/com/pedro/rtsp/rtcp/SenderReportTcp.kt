@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 pedroSG94.
+ * Copyright (C) 2024 pedroSG94.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,42 +16,37 @@
 
 package com.pedro.rtsp.rtcp
 
-import android.util.Log
+import com.pedro.common.socket.base.TcpStreamSocket
 import com.pedro.rtsp.rtsp.RtpFrame
 import com.pedro.rtsp.utils.RtpConstants
+import com.pedro.rtsp.utils.RtpTracks
 import java.io.IOException
-import java.io.OutputStream
 
 /**
  * Created by pedro on 8/11/18.
  */
-class SenderReportTcp : BaseSenderReport() {
+class SenderReportTcp(rtpTracks: RtpTracks): BaseSenderReport(rtpTracks) {
 
-  private var outputStream: OutputStream? = null
-  private val tcpHeader: ByteArray = byteArrayOf('$'.code.toByte(), 0, 0, PACKET_LENGTH.toByte())
+  private var socket: TcpStreamSocket? = null
+  private val tcpHeader: ByteArray = byteArrayOf('$'.code.toByte(), 0, 0, RtpConstants.REPORT_PACKET_LENGTH.toByte())
 
   @Throws(IOException::class)
-  override fun setDataStream(outputStream: OutputStream, host: String) {
-    this.outputStream = outputStream
+  override suspend fun setSocket(socket: TcpStreamSocket) {
+    this.socket = socket
   }
 
   @Throws(IOException::class)
-  override suspend fun sendReport(buffer: ByteArray, rtpFrame: RtpFrame, type: String, packetCount: Long, octetCount: Long, isEnableLogs: Boolean) {
-    sendReportTCP(buffer, rtpFrame.channelIdentifier, type, packetCount, octetCount, isEnableLogs)
+  override suspend fun sendReport(buffer: ByteArray, rtpFrame: RtpFrame) {
+    tcpHeader[1] = (2 * rtpFrame.channelIdentifier + 1).toByte()
+    socket?.write(tcpHeader)
+    socket?.write(buffer, 0, RtpConstants.REPORT_PACKET_LENGTH)
+    socket?.flush()
   }
 
-  override fun close() {}
+  override suspend fun close() {}
 
   @Throws(IOException::class)
-  private fun sendReportTCP(buffer: ByteArray, channelIdentifier: Int, type: String, packet: Long, octet: Long, isEnableLogs: Boolean) {
-    synchronized(RtpConstants.lock) {
-      tcpHeader[1] = (2 * channelIdentifier + 1).toByte()
-      outputStream?.write(tcpHeader)
-      outputStream?.write(buffer, 0, PACKET_LENGTH)
-      outputStream?.flush()
-      if (isEnableLogs) {
-        Log.i(TAG, "wrote report: $type, packets: $packet, octet: $octet")
-      }
-    }
+  private suspend fun sendReportTCP(buffer: ByteArray, channelIdentifier: Int) {
+
   }
 }

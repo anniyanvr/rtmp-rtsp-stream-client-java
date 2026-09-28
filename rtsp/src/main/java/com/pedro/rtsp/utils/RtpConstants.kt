@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 pedroSG94.
+ * Copyright (C) 2024 pedroSG94.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,15 +21,19 @@ package com.pedro.rtsp.utils
  */
 object RtpConstants {
 
-  @JvmField
-  val lock = Any()
-  var trackAudio = 1
-  var trackVideo = 0
+  const val MAX_SEQ_NUMBER = 65535
+  const val HMAC_SIZE = 10
   const val clockVideoFrequency = 90000L
+  //RFC 7587. Opus always use a 48khz clock in RTP, no matter the sample rate used to encode
+  const val clockOpusFrequency = 48000L
+  //RFC 3551. The payload type 8 (PCMA) is statically mapped to 8khz mono
+  const val clockG711Frequency = 8000L
   const val RTP_HEADER_LENGTH = 12
   const val MTU = 1500
+  const val REPORT_PACKET_LENGTH = 28
   const val payloadType = 96
-
+  //RFC 3551, table 4. Static payload type mapped to PCMA (G711A), 8khz and 1 channel
+  const val payloadTypeG711 = 8
   //H264 IDR
   const val IDR = 5
 

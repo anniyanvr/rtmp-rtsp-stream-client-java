@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 pedroSG94.
+ * Copyright (C) 2024 pedroSG94.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,12 +16,13 @@
 
 package com.pedro.encoder.input.decoder;
 
-import android.media.MediaExtractor;
-import android.media.MediaFormat;
 import android.os.Build;
 import android.view.Surface;
+
+import com.pedro.common.frame.MediaFrame;
+import com.pedro.encoder.utils.CodecUtil;
+
 import java.nio.ByteBuffer;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Created by pedro on 20/06/17.
@@ -33,30 +34,25 @@ public class VideoDecoder extends BaseDecoder {
   private int height;
   private int fps;
 
-  public VideoDecoder(VideoDecoderInterface videoDecoderInterface) {
+  public VideoDecoder(VideoDecoderInterface videoDecoderInterface, DecoderInterface decoderInterface) {
+    super(decoderInterface);
     TAG = "VideoDecoder";
     this.videoDecoderInterface = videoDecoderInterface;
+    typeError = CodecUtil.CodecTypeError.VIDEO_CODEC;
   }
 
   @Override
-  protected boolean extract(MediaExtractor videoExtractor) {
-    for (int i = 0; i < videoExtractor.getTrackCount() && !mime.startsWith("video/"); i++) {
-      mediaFormat = videoExtractor.getTrackFormat(i);
-      mime = mediaFormat.getString(MediaFormat.KEY_MIME);
-      if (mime.startsWith("video/")) {
-        videoExtractor.selectTrack(i);
-      } else {
-        mediaFormat = null;
-      }
-    }
-    if (mediaFormat != null) {
-      width = mediaFormat.getInteger(MediaFormat.KEY_WIDTH);
-      height = mediaFormat.getInteger(MediaFormat.KEY_HEIGHT);
-      duration = mediaFormat.getLong(MediaFormat.KEY_DURATION);
-      fps = mediaFormat.getInteger(MediaFormat.KEY_FRAME_RATE);
+  protected boolean extract(Extractor extractor) {
+    try {
+      mime = extractor.selectTrack(MediaFrame.Type.VIDEO);
+      VideoInfo info = extractor.getVideoInfo();
+      mediaFormat = extractor.getFormat();
+      this.width = info.getWidth();
+      this.height = info.getHeight();
+      this.duration = info.getDuration();
+      this.fps = info.getFps();
       return true;
-      //video decoder not supported
-    } else {
+    } catch (Exception e) {
       mime = "";
       return false;
     }
@@ -67,7 +63,7 @@ public class VideoDecoder extends BaseDecoder {
   }
 
   @Override
-  protected boolean decodeOutput(ByteBuffer outputBuffer) {
+  protected boolean decodeOutput(ByteBuffer outputBuffer, long timeStamp) {
     return true;
   }
 
@@ -105,6 +101,7 @@ public class VideoDecoder extends BaseDecoder {
   public void resumeRender() {
     synchronized (sync) {
       pause.set(false);
+      semaphore.release();
     }
   }
 }

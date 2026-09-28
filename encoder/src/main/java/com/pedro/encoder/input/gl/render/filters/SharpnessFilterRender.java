@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 pedroSG94.
+ * Copyright (C) 2024 pedroSG94.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,9 +20,12 @@ import android.content.Context;
 import android.opengl.GLES20;
 import android.opengl.Matrix;
 import android.os.Build;
+
 import androidx.annotation.RequiresApi;
+
 import com.pedro.encoder.R;
 import com.pedro.encoder.utils.gl.GlUtil;
+
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
@@ -48,10 +51,10 @@ public class SharpnessFilterRender extends BaseFilterRender {
   private int uMVPMatrixHandle = -1;
   private int uSTMatrixHandle = -1;
   private int uSamplerHandle = -1;
-  private int uStepSizeHandle = -1;
+  private int uResolutionHandle = -1;
   private int uSharpnessHandle = -1;
 
-  private float sharpness = 0.5f;
+  private float sharpness = 16f;
 
   public SharpnessFilterRender() {
     squareVertex = ByteBuffer.allocateDirect(squareVertexDataFilter.length * FLOAT_SIZE_BYTES)
@@ -73,8 +76,8 @@ public class SharpnessFilterRender extends BaseFilterRender {
     uMVPMatrixHandle = GLES20.glGetUniformLocation(program, "uMVPMatrix");
     uSTMatrixHandle = GLES20.glGetUniformLocation(program, "uSTMatrix");
     uSamplerHandle = GLES20.glGetUniformLocation(program, "uSampler");
-    uStepSizeHandle = GLES20.glGetUniformLocation(program, "uStepSize");
-    uSharpnessHandle = GLES20.glGetUniformLocation(program, "uBrightness");
+    uResolutionHandle = GLES20.glGetUniformLocation(program, "uResolution");
+    uSharpnessHandle = GLES20.glGetUniformLocation(program, "uSharpness");
   }
 
   @Override
@@ -93,12 +96,17 @@ public class SharpnessFilterRender extends BaseFilterRender {
 
     GLES20.glUniformMatrix4fv(uMVPMatrixHandle, 1, false, MVPMatrix, 0);
     GLES20.glUniformMatrix4fv(uSTMatrixHandle, 1, false, STMatrix, 0);
-    GLES20.glUniform2f(uStepSizeHandle, 1f / getWidth(), 1f / getHeight());
+    GLES20.glUniform2f(uResolutionHandle,  getWidth(), getHeight());
     GLES20.glUniform1f(uSharpnessHandle, sharpness);
 
-    GLES20.glUniform1i(uSamplerHandle, 4);
-    GLES20.glActiveTexture(GLES20.GL_TEXTURE4);
+    GLES20.glUniform1i(uSamplerHandle, 0);
+    GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
     GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, previousTexId);
+  }
+
+  @Override
+  protected void disableResources() {
+    GlUtil.disableResources(aTextureHandle, aPositionHandle);
   }
 
   @Override

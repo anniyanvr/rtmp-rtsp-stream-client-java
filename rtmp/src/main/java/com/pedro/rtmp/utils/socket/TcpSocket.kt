@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2022 pedroSG94.
+ * Copyright (C) 2024 pedroSG94.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,60 +16,81 @@
 
 package com.pedro.rtmp.utils.socket
 
-import com.pedro.rtmp.utils.TLSSocketFactory
-import java.io.*
-import java.net.InetSocketAddress
-import java.net.Socket
-import java.net.SocketAddress
-import java.security.GeneralSecurityException
+import com.pedro.common.socket.base.SocketType
+import com.pedro.common.socket.base.StreamSocket
+import com.pedro.common.toUInt16
+import com.pedro.common.toUInt24
+import com.pedro.common.toUInt32
+import com.pedro.common.toUInt32LittleEndian
+import javax.net.ssl.TrustManager
 
 /**
  * Created by pedro on 5/4/22.
  */
-class TcpSocket(private val host: String, private val port: Int, private val secured: Boolean): RtmpSocket() {
+class TcpSocket(
+  type: SocketType,
+  host: String, port: Int, secured: Boolean,
+  timeout: Long, hostVerification: Boolean,
+  certificates: TrustManager?
+): RtmpSocket() {
 
-  private var socket: Socket = Socket()
-  private var input: BufferedInputStream = BufferedInputStream(ByteArrayInputStream(byteArrayOf()))
-  private var output: OutputStream = ByteArrayOutputStream()
+  private val socket = StreamSocket.createTcpSocket(type, host, port, secured, timeout, hostVerification, certificates)
 
-  override fun getOutStream(): OutputStream = output
-
-  override fun getInputStream(): InputStream = input
-
-  override fun flush(isPacket: Boolean) {
-    getOutStream().flush()
+  override suspend fun flush(isPacket: Boolean) {
+    socket.flush()
   }
 
-  override fun connect() {
-    if (secured) {
-      try {
-        val socketFactory = TLSSocketFactory()
-        socket = socketFactory.createSocket(host, port)
-      } catch (e: GeneralSecurityException) {
-        throw IOException("Create SSL socket failed: ${e.message}")
-      }
-    } else {
-      socket = Socket()
-      val socketAddress: SocketAddress = InetSocketAddress(host, port)
-      socket.connect(socketAddress, timeout)
-    }
-    output = socket.getOutputStream()
-    input = BufferedInputStream(socket.getInputStream())
-    socket.soTimeout = timeout
+  override suspend fun connect() {
+    socket.connect()
   }
 
-  override fun close() {
-    try {
-      if (socket.isConnected) {
-        socket.getInputStream().close()
-        input.close()
-        output.close()
-        socket.close()
-      }
-    } catch (ignored: Exception) {}
+  override suspend fun close() {
+    socket.close()
   }
 
-  override fun isConnected(): Boolean = socket.isConnected
+  override fun isConnected(): Boolean = socket.isConnected()
 
-  override fun isReachable(): Boolean = socket.inetAddress?.isReachable(5000) ?: false
+  override fun isReachable(): Boolean = socket.isReachable()
+
+  override suspend fun write(b: Int) {
+    socket.write(b)
+  }
+
+  override suspend fun write(b: ByteArray) {
+    socket.write(b)
+  }
+
+  override suspend fun write(b: ByteArray, offset: Int, size: Int) {
+    socket.write(b, offset, size)
+  }
+
+  override suspend fun writeUInt16(b: Int) {
+    socket.write(b.toUInt16())
+  }
+
+  override suspend fun writeUInt24(b: Int) {
+    socket.write(b.toUInt24())
+  }
+
+  override suspend fun writeUInt32(b: Int) {
+    socket.write(b.toUInt32())
+  }
+
+  override suspend fun writeUInt32LittleEndian(b: Int) {
+    socket.write(b.toUInt32LittleEndian())
+  }
+
+  override suspend fun read(): Int = socket.read(1)[0].toInt() and 0xff
+
+  override suspend fun readUInt16(): Int = socket.read(2).toUInt16()
+
+  override suspend fun readUInt24(): Int = socket.read(3).toUInt24()
+
+  override suspend fun readUInt32(): Int = socket.read(4).toUInt32()
+
+  override suspend fun readUInt32LittleEndian(): Int = socket.read(4).toUInt32LittleEndian()
+
+  override suspend fun readUntil(b: ByteArray) {
+    socket.read(b)
+  }
 }

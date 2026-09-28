@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021 pedroSG94.
+ * Copyright (C) 2024 pedroSG94.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,38 +16,68 @@
 
 package com.pedro.rtsp.rtcp
 
+import com.pedro.common.TimeUtils
+import com.pedro.common.socket.base.SocketType
+import com.pedro.common.socket.base.StreamSocket
+import com.pedro.common.socket.base.TcpStreamSocket
+import com.pedro.common.socket.base.UdpStreamSocket
+import com.pedro.common.toUInt32
 import com.pedro.rtsp.rtsp.Protocol
 import com.pedro.rtsp.rtsp.RtpFrame
+import com.pedro.rtsp.utils.CryptoProperties
+import com.pedro.rtsp.utils.CryptoUtils
 import com.pedro.rtsp.utils.RtpConstants
+import com.pedro.rtsp.utils.RtpTracks
 import com.pedro.rtsp.utils.setLong
 import java.io.IOException
-import java.io.OutputStream
 
 /**
  * Created by pedro on 7/11/18.
  */
-abstract class BaseSenderReport internal constructor() {
+abstract class BaseSenderReport internal constructor(private val rtpTracks: RtpTracks) {
 
   private val interval: Long = 3000
-  private val videoBuffer = ByteArray(RtpConstants.MTU)
-  private val audioBuffer = ByteArray(RtpConstants.MTU)
+  private val videoBuffer = ByteArray(RtpConstants.REPORT_PACKET_LENGTH)
+  private val audioBuffer = ByteArray(RtpConstants.REPORT_PACKET_LENGTH)
   private var videoTime: Long = 0
   private var audioTime: Long = 0
   private var videoPacketCount = 0L
   private var videoOctetCount = 0L
   private var audioPacketCount = 0L
   private var audioOctetCount = 0L
-  val PACKET_LENGTH = 28
-  protected val TAG = "BaseSenderReport"
+  private var srtcpVideoIndex = 0
+  private var srtcpAudioIndex = 0
+  private var cryptoUtils: CryptoUtils? = null
+
+  private var ssrcVideo = 0L
+  private var ssrcAudio = 0L
 
   companion object {
     @JvmStatic
-    fun getInstance(protocol: Protocol, videoSourcePort: Int, audioSourcePort: Int): BaseSenderReport {
+    fun getInstance(
+      rtpTracks: RtpTracks,
+      socketType: SocketType,
+      protocol: Protocol, host: String,
+      timeout: Long,
+      videoSourcePort: Int?, audioSourcePort: Int?,
+      videoServerPort: Int?, audioServerPort: Int?,
+    ): BaseSenderReport {
       return if (protocol === Protocol.TCP) {
-        SenderReportTcp()
+        SenderReportTcp(rtpTracks)
       } else {
-        SenderReportUdp(videoSourcePort, audioSourcePort)
+        val videoSocket = if (videoServerPort != null) {
+          StreamSocket.createUdpSocket(socketType, host, videoServerPort, timeout, sourcePort = videoSourcePort)
+        } else null
+        val audioSocket = if (audioServerPort != null) {
+          StreamSocket.createUdpSocket(socketType, host, audioServerPort, timeout, sourcePort = audioSourcePort)
+        } else null
+        SenderReportUdp(rtpTracks, videoSocket, audioSocket)
       }
+    }
+
+    @JvmStatic
+    fun getInstance(rtpTracks: RtpTracks, socket: UdpStreamSocket): BaseSenderReport {
+      return SenderReportUdpMux(rtpTracks, socket)
     }
   }
 
@@ -67,8 +97,8 @@ abstract class BaseSenderReport internal constructor() {
     audioBuffer[1] = 200.toByte()
 
     /* Byte 2,3          ->  Length		                     */
-    videoBuffer.setLong(PACKET_LENGTH / 4 - 1L, 2, 4)
-    audioBuffer.setLong(PACKET_LENGTH / 4 - 1L, 2, 4)
+    videoBuffer.setLong(RtpConstants.REPORT_PACKET_LENGTH / 4 - 1L, 2, 4)
+    audioBuffer.setLong(RtpConstants.REPORT_PACKET_LENGTH / 4 - 1L, 2, 4)
     /* Byte 4,5,6,7      ->  SSRC                            */
     /* Byte 8,9,10,11    ->  NTP timestamp hb				 */
     /* Byte 12,13,14,15  ->  NTP timestamp lb				 */
@@ -78,50 +108,60 @@ abstract class BaseSenderReport internal constructor() {
   }
 
   fun setSSRC(ssrcVideo: Long, ssrcAudio: Long) {
+    this.ssrcVideo = ssrcVideo
+    this.ssrcAudio = ssrcAudio
     videoBuffer.setLong(ssrcVideo, 4, 8)
     audioBuffer.setLong(ssrcAudio, 4, 8)
   }
 
-  @Throws(IOException::class)
-  abstract fun setDataStream(outputStream: OutputStream, host: String)
+  fun setCrypto(properties: CryptoProperties) {
+    cryptoUtils = CryptoUtils(properties)
+  }
 
   @Throws(IOException::class)
-  suspend fun update(rtpFrame: RtpFrame, isEnableLogs: Boolean): Boolean {
-    return if (rtpFrame.channelIdentifier == RtpConstants.trackVideo) {
-      updateVideo(rtpFrame, isEnableLogs)
+  abstract suspend fun setSocket(socket: TcpStreamSocket)
+
+  @Throws(IOException::class)
+  suspend fun update(rtpFrame: RtpFrame): Boolean {
+    return if (rtpFrame.channelIdentifier == rtpTracks.trackVideo) {
+      updateVideo(rtpFrame)
     } else {
-      updateAudio(rtpFrame, isEnableLogs)
+      updateAudio(rtpFrame)
     }
   }
 
   @Throws(IOException::class)
-  abstract suspend fun sendReport(buffer: ByteArray, rtpFrame: RtpFrame, type: String, packetCount: Long, octetCount: Long, isEnableLogs: Boolean)
+  abstract suspend fun sendReport(buffer: ByteArray, rtpFrame: RtpFrame)
 
   @Throws(IOException::class)
-  private suspend fun updateVideo(rtpFrame: RtpFrame, isEnableLogs: Boolean): Boolean {
+  private suspend fun updateVideo(rtpFrame: RtpFrame): Boolean {
     videoPacketCount++
     videoOctetCount += rtpFrame.length
     videoBuffer.setLong(videoPacketCount, 20, 24)
     videoBuffer.setLong(videoOctetCount, 24, 28)
-    if (System.currentTimeMillis() - videoTime >= interval) {
-      videoTime = System.currentTimeMillis()
-      setData(videoBuffer, System.nanoTime(), rtpFrame.timeStamp)
-      sendReport(videoBuffer, rtpFrame, "Video", videoPacketCount, videoOctetCount, isEnableLogs)
+    if (TimeUtils.getCurrentTimeMillis() - videoTime >= interval) {
+      videoTime = TimeUtils.getCurrentTimeMillis()
+      setData(videoBuffer, TimeUtils.getCurrentTimeNano(), rtpFrame.timeStamp)
+      cryptoUtils?.let {
+        sendReport(encrypt(videoBuffer, srtcpVideoIndex++, ssrcVideo, it), rtpFrame)
+      } ?: sendReport(videoBuffer, rtpFrame)
       return true
     }
     return false
   }
 
   @Throws(IOException::class)
-  private suspend fun updateAudio(rtpFrame: RtpFrame, isEnableLogs: Boolean): Boolean {
+  private suspend fun updateAudio(rtpFrame: RtpFrame): Boolean {
     audioPacketCount++
     audioOctetCount += rtpFrame.length
     audioBuffer.setLong(audioPacketCount, 20, 24)
     audioBuffer.setLong(audioOctetCount, 24, 28)
-    if (System.currentTimeMillis() - audioTime >= interval) {
-      audioTime = System.currentTimeMillis()
-      setData(audioBuffer, System.nanoTime(), rtpFrame.timeStamp)
-      sendReport(audioBuffer, rtpFrame, "Audio", audioPacketCount, audioOctetCount, isEnableLogs)
+    if (TimeUtils.getCurrentTimeMillis() - audioTime >= interval) {
+      audioTime = TimeUtils.getCurrentTimeMillis()
+      setData(audioBuffer, TimeUtils.getCurrentTimeNano(), rtpFrame.timeStamp)
+      cryptoUtils?.let {
+        sendReport(encrypt(audioBuffer, srtcpAudioIndex++, ssrcAudio, it), rtpFrame)
+      } ?: sendReport(audioBuffer, rtpFrame)
       return true
     }
     return false
@@ -134,13 +174,15 @@ abstract class BaseSenderReport internal constructor() {
     audioPacketCount = 0
     audioTime = 0
     videoTime = 0
+    srtcpVideoIndex = 0
+    srtcpAudioIndex  = 0
     videoBuffer.setLong(videoPacketCount, 20, 24)
     videoBuffer.setLong(videoOctetCount, 24, 28)
     audioBuffer.setLong(audioPacketCount, 20, 24)
     audioBuffer.setLong(audioOctetCount, 24, 28)
   }
 
-  abstract fun close()
+  abstract suspend fun close()
 
   private fun setData(buffer: ByteArray, ntpts: Long, rtpts: Long) {
     val hb = ntpts / 1000000000
@@ -148,5 +190,22 @@ abstract class BaseSenderReport internal constructor() {
     buffer.setLong(hb, 8, 12)
     buffer.setLong(lb, 12, 16)
     buffer.setLong(rtpts, 16, 20)
+  }
+
+  private fun encrypt(
+    buffer: ByteArray, index: Int, ssrc: Long, cryptoUtils: CryptoUtils,
+  ): ByteArray {
+    var encryptedData = buffer
+    val i = index or (1 shl 31)
+    encryptedData = encryptedData.plus(i.toUInt32())
+    val payload = encryptedData.copyOfRange(8, encryptedData.size - 4)
+    val encryptPayload = cryptoUtils.encrypt(payload, getIvData(ssrc, index, cryptoUtils))
+    encryptPayload.copyInto(encryptedData, 8)
+    val hmac = cryptoUtils.calculateHmac(encryptedData)
+    return encryptedData.plus(hmac)
+  }
+
+  private fun getIvData(ssrc: Long, index: Int, cryptoUtils: CryptoUtils): ByteArray {
+    return cryptoUtils.generateIv(ssrc, index.toLong())
   }
 }
